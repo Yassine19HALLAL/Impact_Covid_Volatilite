@@ -1,0 +1,514 @@
+---
+title: "Impact de covid-19 sur la volatilité des cours boursiers : Cas du MAROC (MASI)"
+author: "Yassine HALLAL"
+date: "2023-01-25"
+output: 
+  pdf_document:
+    toc : True
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+\newpage
+
+# 1. Objectif de ce travail :
+
+Suite à la pandémie de COVID-19, les marchés financiers du monde entier ont connu une volatilité et une incertitude sans précédent. Par conséquent, de nombreuses études de recherche ont été menées pour examiner l'impact de cette crise mondiale sur les dynamiques du marché boursier. Ce projet vise à **reproduire les méthodes statistiques utilisées** dans un [article de recherche](https://doi.org/10.5281/zenodo.4699287) qui a exploré l'impact de COVID-19 sur la volatilité de l'indice boursier marocain (MASI). **L'objectif principal de ce travail était d'acquérir une expérience pratique et d'améliorer notre compréhension des techniques statistiques utilisées dans l'analyse des données boursières, ainsi que de mettre en pratique nos compétences en utilisant le langage de programmation R.**
+
+En reproduisant les méthodes statistiques décrites dans l'article, nous avons cherché à valider les résultats et à évaluer leurs reproductibilité. Cependant, il est important de noter que des **différences ont été observées dans les résultats obtenus par rapport à ceux rapportés dans l'article**. Ces variations peuvent provenir de différences dans les sources de données.
+
+**Les interprétations sont basées sur les résultats que nous avons obtenus et non pas sur ceux qui ont été présenté dans l'article.**
+
+Bien que ce travail ne contribue pas à de nouvelles découvertes empiriques, il offre des informations précieuses sur le processus de reproduction des méthodes statistiques **sous R** et constitue un exercice précieux pour améliorer nos compétences analytiques.
+
+En acquérant une expérience pratique dans la reproduction de recherches existantes, nous améliorons notre capacité à évaluer de manière critique la littérature scientifique et à affiner nos techniques analytiques.
+
+L'article de recherche original : "[Covid-19: quel impact sur le rendement et la volatilité du marché marocain des actions cotées](https://doi.org/10.5281/zenodo.4699287)?"
+
+# 2. Méthodologie :
+
+L'objectif principal de cette étude est d'examiner le rendement et la volatilité du marché boursier marocain avant et pendant la période de confinement. L'analyse vise à déterminer si, lorsque les activités réelles sont suspendues, les fluctuations des cours boursiers sont moins prononcées que dans des conditions de marché normales.
+
+## 2.1. Période, données et variables :
+
+**Période** : La période globale de cette étude s'étale du 2 janvier 2019 au 22 juin 2020.
+
+**Données** : Les données de l'étude comportent les valeurs quotidiennes de l'indice MASI extraites du site www.investing.com, ainsi que des données relatives à l'évolution des nombres de cas déclarés positifs au Covid-19 collectées du site web <https://ourworldindata.org/>.
+
+**Variables** : Les variables de l'étude concernent le rendement quotidiendu MASI noté $Rmasi_t$ calculé comme suit : $$ Rmasi_{t} = ln(\frac{P_{t}}{P_{t-1}}) $$ ; avec $P_{t-1}$ et $P_{t}$ respectivement lesvaleurs quotidiennes de clôture de l'indice MASI en $t-1$ et $t$.
+
+Et le taux quotidien d'évolution des nouveaux cas contaminés par le coronavirus, noté $Tcovid_t$ qu'on mesure ainsi:
+
+$$ Tcovid_{t} = ln(\frac{N_{t}}{N_{t-1}}) $$ avec $N_{t-1}$ et $N_{t}$ respectivement le nombre quotidien de nouveaux cas déclarés positif au Covid-19 les dates $t-1$ et $t$.
+
+## 2.2. Protocole de recherche :
+
+-   **Causalité** : Mettre en évidence une relation causale entre l'évolution passée du coronavirus décalée d'un nombre de jours $t-i$, et le rendement courant à l'instant t de l'indice MASI.
+
+-   **Lags optimales** : VAR (Vecteur autorégressif).
+
+-   **Modélisation de la volatilité des rendements** : GARCH Model. **en introduisant une variable dichotomique (Dummy Variable)** noté $Dcovid$, qui prend la valeur 1 aprés la déclaration du premier cas de Covid-19, et 0 avant cette période.
+
+**Pour plus de details, veuillez consulter l'article de recherche cité.**
+
+\newpage
+
+### Packages utilisés
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tibble)
+library(ggplot2)
+library(knitr)
+```
+
+### Importation/Manipulation des données
+
+```{r}
+# Lecture du fichier Excel et stockage dans l'objet de données df
+df <- read_excel(path = "~/Impact_Covid_Volatilité/Data/Volatility.xlsx")
+```
+
+```{r}
+# Calcul du logarithme des rendements du cours de clôture (RMASI)
+RMASI <- log(df[3] / lag(df[3]))
+
+# Ajout de la colonne RMASI à l'objet de données df
+df <- cbind(df, RMASI) 
+names(df)[4] <- "RMASI"
+
+# Calcul du logarithme des variations du nombre de nouveaux cas (Tcovid)
+Tcovid = log(df[2] / lag(df[2]))
+df <- cbind(df, Tcovid)
+names(df)[5] <- "Tcovid"
+
+# Renommer les colonnes existantes
+names(df)[1] <- "Date"
+names(df)[2] <- "New_cases"
+names(df)[3] <- "Close"
+
+# Remplacer les valeurs manquantes (NAs) par zéro
+df[is.na(df)] <- 0
+data <- as.data.frame(df)
+
+## Faut eviter les valeurs +infini et -infini
+is_neg_inf <- is.infinite(data$Tcovid) & data$Tcovid < 0
+is_pos_inf <- is.infinite(data$Tcovid) & data$Tcovid > 0
+
+# Remplacer -Inf avec 0 et Inf avec 1
+data$Tcovid[is_neg_inf] <- 0
+data$Tcovid[is_pos_inf] <- 1
+
+```
+
+# 3. Evolution du rendement boursier et des nouveaux cas de COVID-19.
+
+```{r}
+plot(x= data$Date, y = data$RMASI,
+     col = "blue",
+     main = "Rendement quotidien MASI entre Janvier 2020 et Juin 2020",
+     type = "line"
+     )
+
+```
+
+```{r}
+plot(x= data$Date, y = data$New_cases,
+     col = "red",
+     main = "Evolution journalière des cas positifs (Covid-19) au Maroc",
+     type = "line"
+     )
+```
+
+# 4. LA RELATION ENTRE LE RENDEMENT BOURSIER ET L'EVOLUTION DE LA PANDEMIE DU COVID-19
+
+## 4.1. Statistique descriptive
+
+```{r}
+library(e1071) #test de Jarque-Berra
+library(moments) #Skewness et Kurtosis
+
+#Statistique descriptive
+desc_stats_RMASI <- summary(data$RMASI)
+desc_stats_Tcovid <- summary(data$Tcovid)
+
+#skewness
+skewness_RMASI <- skewness(data$RMASI)
+skewness_Tcovid <- skewness(data$Tcovid)
+
+#kurtosis
+kurtosis_RMASI <- kurtosis(data$RMASI)
+kurtosis_Tcovid <- kurtosis(data$Tcovid)
+
+# Jarque Berra Test
+jb_test_RMASI <- jarque.test(data$RMASI)
+jb_test_Tcovid <- jarque.test(data$Tcovid)
+
+#resumé des résultats sous forme d'un tableau
+desc_stat <- data.frame(
+  Variable = c("RMASI", "Tcovid"),
+  Moyenne = c(desc_stats_RMASI[["Mean"]], desc_stats_Tcovid[["Mean"]]),
+  Médiane = c(desc_stats_RMASI[["Median"]], desc_stats_Tcovid[["Median"]]),
+  Maximum = c(desc_stats_RMASI[["Max."]], desc_stats_Tcovid[["Max."]]),
+  Minimum = c(desc_stats_RMASI[["Min."]], desc_stats_Tcovid[["Min."]]),
+  Std_dev = c(sd(data$RMASI), sd(data$Tcovid)),
+  Skewness = c(skewness_RMASI, skewness_Tcovid),
+  Kurtosis = c(kurtosis_RMASI, kurtosis_Tcovid),
+  JB_p_value = c(jb_test_RMASI$p.value, jb_test_Tcovid$p.value),
+  Observations = c(length(data$RMASI), length(data$Tcovid))
+)
+kable(t(desc_stat))
+```
+
+Le rendement journalier de l'indice MASI présente une valeur moyenne négative pendant la période de confinement, accompagnée d'une volatilité élevée avec un écart-type de $0,017$. Les autres indicateurs fournissent des informations sur la nature de la distribution de la série.
+
+L'aplatissement (Kurtosis) affiche une valeur de $11.26$, ce qui suggère que la courbe de densité est plus pointue que celle de la loi normale.
+
+L'asymétrie (Skewness) est négative $(-1.63)$, indiquant une distribution asymétrique avec une queue étendue vers la gauche.
+
+En ce qui concerne le test de Jarque-Bera, la p-value est inférieure à 1% $(probabilité = 0,0000)$, ce qui rejette l'hypothèse nulle de normalité.
+
+En ce qui concerne le taux quotidien d'évolution des nouveaux cas positifs au COVID-19, on observe une moyenne de 6.18% avec un écart-type élevé de $0,43$.
+
+Les valeurs extrêmes sont nettement éloignées de la moyenne, ce qui indique une dispersion importante des données.
+
+De plus, la distribution de ces taux ne suit pas les caractéristiques de la loi normale, comme le montrent les indicateurs de Kurtosis, Skewness et Jarque-Bera.
+
+## 4.2. Test de causalité de Granger
+
+### Test ADF/KPSS de stationnarité.
+
+```{r}
+library(tseries)
+
+# ADF et KPSS test pour RMASI
+adf1 <- adf.test(data$RMASI, alternative = "stationary")
+kpss1 <- kpss.test(data$RMASI)
+
+# ADF et KPSS test pour Tcovid
+adf2 <- adf.test(data$Tcovid, alternative = "stationary")
+kpss2 <- kpss.test(data$Tcovid)
+
+# Tableau des résultats
+stationarity <- data.frame(
+  Variable = c("RMASI", "Tcovid"),
+  "Test ADF" = c(adf1$p.value, adf2$p.value),
+  "Test KPSS" = c(kpss1$p.value, kpss2$p.value),
+  "Stationnarité" = c("Stationnaire", "Stationnaire")
+)
+
+kable(stationarity)
+```
+
+**Les séries du rendement quotidien Rmasi et du taux quotidien des cas de covid-19 Tcovid sont stationnaires au seuil de 1%.**
+
+### Lags Optimales :
+
+```{r}
+library(lmtest)
+library(vars)
+
+var_data = cbind(data$RMASI, data$Tcovid)
+colnames(var_data) <- c("RMASI", "TCOVID")
+
+# Définition de la plage de lag
+lag_range = 1:10
+
+# Initialisation des vecteurs pour stocker les valeurs AIC et BIC
+aic_values = numeric(length(lag_range))
+bic_values = numeric(length(lag_range))
+
+# Boucle pour ajuster les modèles VAR avec différents lags
+# Calculer les valeurs AIC et BIC
+for (i in lag_range) {
+  var_fit <- VAR(var_data, p = i) # Ajustement du modèle VAR avec un lag de i
+  aic_values[i] <- AIC(var_fit) # Stockage des valeurs AIC et BIC
+  bic_values[i] <- BIC(var_fit)
+}
+
+# Détermination du lag optimal
+optimal_lag_aic <- lag_range[which.min(aic_values)]
+optimal_lag_bic <- lag_range[which.min(bic_values)]
+
+# Tableau des résultats
+optimal_lags <- data.frame(
+  "Criterion" = c("AIC", "BIC"),
+  "optimal lag" = c(optimal_lag_aic, optimal_lag_bic),
+  "Criterion value" = c(aic_values[optimal_lag_aic], bic_values[optimal_lag_bic])
+)
+kable(optimal_lags)
+```
+
+### Test de Granger :
+
+```{r}
+Tcovid_granger = grangertest(data$RMASI ~ data$Tcovid, order = optimal_lag_aic)
+RMASI_granger = grangertest(data$Tcovid ~ data$RMASI, order = optimal_lag_aic)
+
+Causality_test_table <- data.frame(
+  "null hypothesis" = c("TCOVID does not Granger cause RMASI", 
+                        "RMASI does not Granger cause TCOVID"),
+  
+  "Optimal Lags" = c(optimal_lag_aic, optimal_lag_aic),
+  "F Stat" = c(Tcovid_granger$F[2], RMASI_granger$F[2]),
+  
+  "Probability" = c(format(Tcovid_granger$`Pr(>F)`[2], digits = 4, scientific = TRUE), 
+                    format(RMASI_granger$`Pr(>F)`[2], digits = 4, scientific = FALSE)),
+  
+  "significance" = c("significant at 1%", "non significant")
+)
+kable(t(Causality_test_table))
+```
+
+**L'information concernant les nouvelles déclarations sur la maladie, exercent un effet sur la rentabilité de l'indice MASI après jusqu'au deuxième jour après la date d'annonce.**
+
+## 4.3. Modélisation vecteur autorégressive VAR
+
+```{r}
+VAR <- VAR(var_data, p = 2)
+summary(VAR)
+```
+
+**Les variables $Tcovid (-1)$ et $Tcovid (-2)$ présentent un signe négatif, ce qui met en évidence la nature de la relation causale révélée par le test de Granger. En effet, il existe un impact négatif à court terme sur le rendement boursier, en tenant compte de l'évolution de la situation pandémique. Les coefficients associés aux variables indiquent que le taux quotidien de nouveaux cas dépistés le jour $j$ a un effet significatif au seuil de 1% sur le rendement du MASI à $j+1$ et aussi à $j+2$.**
+
+# 5. Impact de COVID-19 sur la volatilité du rendement boursier.
+
+```{r}
+arch_data <- data.frame(read_excel(path = "~/Impact_Covid_Volatilité/Data/arch_data.xlsx"))
+colnames(arch_data) <- c("Date", "Close", "DCOVID")
+
+RMASI <- log(arch_data$Close / lag(arch_data$Close))
+arch_data <- cbind(arch_data, RMASI)
+names(arch_data)[4] <- "RMASI"
+arch_data <- na.omit(arch_data)
+```
+
+```{r}
+plot_ret <- ggplot(arch_data, aes(x = arch_data$Date, y = arch_data$RMASI)) +
+  geom_line(color = "blue") +
+  scale_x_datetime(date_labels = "%b %Y", date_breaks = "1 month") +
+  xlab("Date") +  # X-axis label
+  ylab("Variation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Evolution du rendement journalier du MASI entre 2 janvier 2019 et 22 juin 2020")
+    
+print(plot_ret)
+```
+
+```{r}
+hist(arch_data$RMASI, breaks = 55, xlab = "", col = "10", main = "Caractéristiques du rendement")
+```
+
+```{r}
+desc_stats_change <- summary(arch_data$RMASI)
+skewness_change <- skewness(arch_data$RMASI)
+kurtosis_change <- kurtosis(arch_data$RMASI)
+jb_test_change <- jarque.test(arch_data$RMASI)
+
+#resumé des résultats sous forme d'un tableau
+desc_stat_change <- data.frame(
+  Variable = "RMASI",
+  Moyenne = desc_stats_change[["Mean"]],
+  Médiane = desc_stats_change[["Median"]],
+  Maximum = desc_stats_change[["Max."]],
+  Minimum = desc_stats_change[["Min."]],
+  Std_dev = sd(arch_data$RMASI),
+  Skewness = skewness_change,
+  Kurtosis = kurtosis_change,
+  JB_p_value = jb_test_change$p.value,
+  Observations = length(arch_data$RMASI)
+)
+kable(t(desc_stat_change))
+```
+
+```{r}
+library(gridExtra) # Package utilisé pour la combinaison des graphes
+
+# ACF
+acf_data <- acf(arch_data$RMASI, main = "ACF Correlogram", plot = FALSE)
+
+# PACF
+pacf_data <- pacf(arch_data$RMASI, main = "PACF Correlogram", plot = FALSE)
+
+# Création du graphique de l'ACF + bandes de significance
+acf_plot <- ggplot(data.frame(lag = acf_data$lag, acf = acf_data$acf), aes(x = lag, y = acf)) +
+  geom_bar(stat = "identity", fill = "blue", width = 0.5) +
+  geom_hline(yintercept = 1.96/sqrt(length(arch_data$RMASI)), linetype = "dashed", color = "red") +
+  geom_hline(yintercept = -1.96/sqrt(length(arch_data$RMASI)), linetype = "dashed", color = "red") +
+  labs(title = "ACF Correlogram") +
+  xlab("Lags") +
+  ylab("ACF")
+
+# Création du graphique de PACF + bandes de significance
+pacf_plot <- ggplot(data.frame(lag = pacf_data$lag, pacf = pacf_data$acf), aes(x = lag, y = pacf)) +
+  geom_bar(stat = "identity", fill = "green", width = 0.5) +
+  geom_hline(yintercept = 1.96/sqrt(length(arch_data$RMASI)), linetype = "dashed", color = "red") +
+  geom_hline(yintercept = -1.96/sqrt(length(arch_data$RMASI)), linetype = "dashed", color = "red") +
+  labs(title = "PACF Correlogram") +
+  xlab("Lags") +
+  ylab("PACF")
+
+# Combiner les graphiques en un seul
+combined_plot <- grid.arrange(acf_plot, pacf_plot, nrow = 1)
+
+
+```
+
+## Stationarité :
+
+```{r}
+# ADF et KPSS test pour RMASI
+adf <- adf.test(arch_data$RMASI)
+kpss <- kpss.test(arch_data$RMASI)
+
+# Tableau des résultats + interprétation
+statio <- data.frame(
+  Variable = "RMASI",
+  "Test ADF" = adf$p.value,
+  "Test KPSS" = kpss$p.value,
+  "Stationnarité" = "Stationnaire"
+)
+
+kable(t(statio))
+```
+
+## AR, MA, ARMA :
+
+```{r}
+library(stats)
+library(aTSA)
+library(lmtest)
+
+n <- length(data)
+
+# AR model
+ar_model = arima(arch_data$RMASI, order = c(1,0,0))
+ar_const = ar_model$coef[2]
+ar_coef = ar_model$coef[1]
+ar_aic = ar_model$aic
+
+k_AR <- length(coef(ar_model))
+sic_AR <- log(n) * k_AR - 2 * ar_model$loglik
+
+# MA model
+ma_model = arima(arch_data$RMASI, order = c(0,0,1))
+ma_const = ma_model$coef[2]
+ma_coef = ma_model$coef[1]
+ma_aic = ma_model$aic
+k_MA <- length(coef(ma_model))
+sic_MA <- log(n) * k_MA - 2 * ma_model$loglik
+
+# ARMA(1,1) model
+arma_model = arima(arch_data$RMASI, order = c(1,0,1))
+arma_const = arma_model$coef[3]
+arma_AR = arma_model$coef[1]
+arma_MA = arma_model$coef[2]
+arma_aic = arma_model$aic
+k_ARMA <- length(coef(arma_model))
+sic_ARMA <- log(n) * k_ARMA - 2 * ar_model$loglik
+
+ARMA <- data.frame(
+  Model = c("AR(1)", "MA(1)", "ARMA(1,1)"),
+  constantes = I(list(ar_const, ma_const, arma_const)),
+  AR_term = I(list(ar_coef, "", arma_AR)),
+  MA_term = I(list("", ma_coef, arma_MA)),
+  AIC = c(ar_aic, ma_aic, arma_aic),
+  SIC = c(sic_AR, sic_MA, sic_ARMA)
+)
+print(t(ARMA))
+```
+
+**Selon les résultats de l'estimation des trois modèles, AR (1), MA (1) et ARMA (1,1), le modèle AR (1) minimise le critère d'information de Schwarz (-2290.701) contre une valeur de -2287.92 pour l'autre critère AIC. Le modèle ARMA (1,1) minimise l'autre critère AIC (-2287.982) mais maximise le critère de Schwarz. Il serait donc plus logique de retenir la spécification AR (1) comparativement aux modèles, MA (1) étant éliminé selon les deux critères en question et le modèle ARMA (1,1) maximisant le critère Schwarz.**
+
+## ARCH-test :
+
+```{r}
+arch_test_AR = arch.test(ar_model, output = FALSE)
+arch_test_MA = arch.test(ma_model, output = FALSE)
+arch_test_ARMA = arch.test(arma_model, output = FALSE)
+
+# Résultats de Lagrange Multiplier Test
+arch_test_AR[,4:5] # Model AR(1)
+arch_test_MA[,4:5] # model MA(1)
+arch_test_ARMA[,4:5] # model ARMA(1,1)
+
+```
+
+**Dans les trois modèles, la statistique de test LM est significativement élevée , ce qui indique des preuves contre l'hypothèse nulle d'absence d'hétéroscédasticité. De plus, les p-values sont toutes très faibles (proches de zéro pour les trois modèles), ce qui renforce d'avantage le rejet de l'hypothèse nulle.**
+
+**Par conséquent, en se basant sur les résultats du test LM, on peut conclure que les trois modèles présentent une hétéroscédasticité, ce qui rend légitime une tentative de modélisation du rendement du MASI par un modèle de la famille ARCH.**
+
+## AR(1)-GARCH(1,1):
+
+```{r}
+library(rugarch)
+
+# Conversion des données en TS
+returns <- ts(arch_data$RMASI)
+
+# creation d'un vecteur de la variable dichotomique
+dummy <- ts(arch_data$DCOVID)
+
+# Definition du model GARCH(1,1) avec variable dichotomique
+garch_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1),
+                         external.regressors = matrix(dummy)),
+                         mean.model = list(armaOrder = c(1,0), include.mean = TRUE),
+                         distribution.model = "norm")
+
+# Fit
+garch_model <- ugarchfit(spec = garch_spec, data = returns)
+
+
+print(garch_model)
+```
+
+Dans le cadre de $AR(1)-GARCH(1,1)$, les paramètres $Omega$, $Alpha1$, $Beta1$ sont tous positifs et présentent une signification statistique au seuil de 1%. Le paramètre $Alpha1$ mesure l'impact d'un choc de rendement (représenté par le résidu décalé issu de l'équation de la moyenne) sur la volatilité, tandis que le coefficient $Beta1$ reflète la persistance de cette volatilité au fil du temps. Il est intéressant de noter que la condition $Alpha1 + Beta1 < 1$ est satisfaite, ce qui **suggère** que le **processus est stationnaire**, avec une tendance pour la volatilité à converger vers sa moyenne. Par ailleurs, dans le contexte de ce travail, l'accent est mis sur la significativité du paramètre $vxreg1$, qui indique une **relation positive et significative (au seuil de 1%) entre la volatilité du rendement boursier et les informations relatives à la Covid-19**.
+
+Pour le test de Ljung-Box pondéré sur les résidus standardisés, nous observons les statistiques de test et p-values pour différents retards. Les p-values élevées (supérieures à 0,05) indiquent que nous ne disposons pas de suffisamment de preuves pour rejeter l'hypothèse nulle selon laquelle il n'y a pas de autocorrélation significative dans les résidus.
+
+De même, pour le test de Ljung-Box pondéré sur les résidus standardisés au carré, nous constatons également des p-values élevées, ce qui suggère qu'il n'y a pas suffisamment de preuves pour rejeter l'hypothèse nulle de l'absence d'autocorrélation significative dans les résidus au carré.
+
+Pour le test ARCH, les p-values (tous supérieures à 0.05) permet de rejeter l'hypothèse d'hétéroscédasticité et de conclure sur l'homoscedasticité des résidus ce qui constitue un autre argument en faveur de la robustesse de la modélisation conditionnelle de la volatilité.
+
+\newpage
+
+# Conclusion :
+
+Une première conclusion issue de cette étude valide l'idée d'une relation de cause à effet entre les performances boursières et l'évolution quotidienne de la maladie, mesurée par le nombre de nouveaux cas déclarés. En ce qui concerne le lien entre la pandémie mondiale et la volatilité, la deuxième constatation met en évidence une agitation significative sur le marché en termes de rendement suite au déclenchement de la crise au Maroc.
+
+Selon la théorie financière standard, ces résultats fournissent un argument en faveur de l'hypothèse d'efficience informationnelle, en observant une réaction des cours boursiers à l'arrivée d'informations concernant la COVID-19. Cependant, paradoxalement, ces mêmes conclusions contredisent également cette hypothèse en suggérant que l'information sur les fondamentaux économiques n'est pas entièrement reflétée dans les prix. En effet, pendant la période de confinement, il n'y avait pas d'activité économique réelle ni de perspectives de croissance justifiant l'intensité des mouvements de prix et l'ampleur des fluctuations observées.
+
+\newpage
+
+# REFERENCES :
+
+Avouyi-Dovi, S., &Jondeau, E. (1999). La modélisation de la volatilité des bourses asiatiques. (No. 58).
+
+Bollerslev, T. (1986). Generalizedautoregressiveconditionalheteroskedasticity. Journal of econometrics, 31(3), 307-327.
+
+Box G.E.P., Jenkins, G., (1976). .Time Series Analysis, Forecasting and Control, San Francisco : Holden-Day.
+
+Dickey, D.A., & Fuller, W. A. (1976). Distribution of the Estimators for Autoregressive Time Series with a Unit Root. Journal of the American Statistical Association, vol. 74, 1979, pp. 427-431.
+
+Engel, S. M. (1982). With good reason an introduction to informal fallacies.
+
+Falloul, M. E. M., & Mansouri A. (2014). IndiceMASI :une tentative de modélisation par les modèles ARIMA et GARCH [MASI index: an attempt of modeling using ARIMA and GARCH models]. International Journal of Innovation and Applied Studies, 7(4), 1560.
+
+Fama, E. F. (1970). Efficient capital markets : A review of theory and empirical work. The journal of Finance, 25(2), 383-417.
+
+Granger, C. W. (1969). Investigating causal relations by econometric models and cross-spectral methods.
+
+Econometrica : journal of the Econometric Society, 424-438.
+
+Nelson D. B. (1991). , Conditional heteroskedasticity in asset returns : A new approach, Econometrica: Journal of the Econometric Society, 347-370.
+
+Nelson, D. B., & Cao C. Q. (1992). Inequality constraints in the univariate GARCH model. Journal of Business & Economic Statistics, 10(2), 229-235.
+
+Onali, E. (2020). Covid-19 and stock market volatility. Available at SSRN 3571453.
