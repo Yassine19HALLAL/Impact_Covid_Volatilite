@@ -1,4 +1,4 @@
-# Impact de COVID-19 sur la volatilité des indices boursiers : Cas du Maroc
+# Impact de COVID-19 sur le rendement et la volatilité des indices boursiers : Cas du Maroc
 
 Ce Travail vise à reproduire les méthodes statistiques utilisées dans un article de recherche qui a exploré l’impact de COVID-19 sur le rendement et la volatilité de l’indice boursier marocain (MASI).
 
